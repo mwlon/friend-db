@@ -27,31 +27,47 @@ class CalendarViewModel(private val repository: FriendRepository) : ViewModel() 
     private val _uiState = MutableStateFlow(CalendarUiState())
     val uiState: StateFlow<CalendarUiState> = _uiState.asStateFlow()
 
+    private val loadedMonths = mutableSetOf<YearMonth>()
+
     init {
-        loadMonth(YearMonth.now())
+        onMonthChanged(YearMonth.now())
+    }
+
+    fun onMonthChanged(month: YearMonth) {
+        _uiState.update { it.copy(visibleMonth = month) }
+        loadMonthRange(month)
     }
 
     fun navigateToPreviousMonth() {
-        val prev = _uiState.value.visibleMonth.minusMonths(1)
-        _uiState.update { it.copy(visibleMonth = prev) }
-        loadMonth(prev)
+        onMonthChanged(_uiState.value.visibleMonth.minusMonths(1))
     }
 
     fun navigateToNextMonth() {
-        val next = _uiState.value.visibleMonth.plusMonths(1)
-        _uiState.update { it.copy(visibleMonth = next) }
-        loadMonth(next)
+        onMonthChanged(_uiState.value.visibleMonth.plusMonths(1))
     }
 
     fun reloadCurrentMonth() {
-        loadMonth(_uiState.value.visibleMonth)
+        loadedMonths.clear()
+        _uiState.update { it.copy(dayChips = emptyMap()) }
+        loadMonthRange(_uiState.value.visibleMonth)
+    }
+
+    private fun loadMonthRange(month: YearMonth) {
+        // Load a wider range to ensure data is ready when scrolling fast
+        (-2..2).forEach { offset ->
+            val m = month.plusMonths(offset.toLong())
+            if (m !in loadedMonths) {
+                loadedMonths.add(m)
+                loadMonth(m)
+            }
+        }
     }
 
     private fun loadMonth(month: YearMonth) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
             val rows = repository.getMonthUnavailabilities(month)
-            _uiState.update { it.copy(dayChips = buildDayChipMap(rows, month), isLoading = false) }
+            val monthChips = buildDayChipMap(rows, month)
+            _uiState.update { it.copy(dayChips = it.dayChips + monthChips) }
         }
     }
 

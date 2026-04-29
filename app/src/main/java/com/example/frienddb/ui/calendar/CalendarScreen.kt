@@ -2,7 +2,6 @@ package com.example.frienddb.ui.calendar
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,10 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -38,17 +35,19 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
-import com.kizitonwose.calendar.compose.HorizontalCalendar
+import com.kizitonwose.calendar.compose.VerticalCalendar
 import com.kizitonwose.calendar.compose.rememberCalendarState
 import com.kizitonwose.calendar.core.CalendarDay
 import com.kizitonwose.calendar.core.DayPosition
@@ -78,16 +77,29 @@ fun CalendarScreen(
         }
     }
 
+    // Initialize the calendar range once to prevent state re-initialization during scrolls
+    val initialMonth = remember { uiState.visibleMonth }
     val calendarState = rememberCalendarState(
-        startMonth        = uiState.visibleMonth.minusMonths(500),
-        endMonth          = uiState.visibleMonth.plusMonths(500),
-        firstVisibleMonth = uiState.visibleMonth,
+        startMonth        = initialMonth.minusMonths(500),
+        endMonth          = initialMonth.plusMonths(500),
+        firstVisibleMonth = initialMonth,
         firstDayOfWeek    = DayOfWeek.MONDAY,
         outDateStyle      = OutDateStyle.EndOfRow
     )
 
+    // Sync state only if external navigation happens (via buttons)
     LaunchedEffect(uiState.visibleMonth) {
-        calendarState.animateScrollToMonth(uiState.visibleMonth)
+        if (calendarState.firstVisibleMonth.yearMonth != uiState.visibleMonth && !calendarState.isScrollInProgress) {
+            calendarState.animateScrollToMonth(uiState.visibleMonth)
+        }
+    }
+
+    // Update ViewModel as user scrolls
+    LaunchedEffect(calendarState) {
+        snapshotFlow { calendarState.firstVisibleMonth }
+            .collect { month ->
+                viewModel.onMonthChanged(month.yearMonth)
+            }
     }
 
     val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
@@ -95,8 +107,14 @@ fun CalendarScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(uiState.visibleMonth.format(monthFormatter)) },
+                title = { Text("FriendDB") },
                 actions = {
+                    IconButton(onClick = viewModel::navigateToPreviousMonth) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous")
+                    }
+                    IconButton(onClick = viewModel::navigateToNextMonth) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next")
+                    }
                     IconButton(onClick = onNavigateToEdit) {
                         Icon(Icons.Default.Edit, contentDescription = "Edit")
                     }
@@ -109,13 +127,13 @@ fun CalendarScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
         ) {
             DaysOfWeekHeader()
-            HorizontalCalendar(
-                state             = calendarState,
-                userScrollEnabled = false,
-                dayContent        = { day ->
+            VerticalCalendar(
+                modifier            = Modifier.weight(1f),
+                state               = calendarState,
+                calendarScrollPaged = false, // Enable free scrolling
+                dayContent          = { day ->
                     DayCell(
                         day   = day,
                         chips = if (day.position == DayPosition.MonthDate)
@@ -130,19 +148,15 @@ fun CalendarScreen(
                         }
                     )
                 },
-                monthHeader = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = viewModel::navigateToPreviousMonth) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous month")
-                        }
-                        Box(Modifier.weight(1f))
-                        IconButton(onClick = viewModel::navigateToNextMonth) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next month")
-                        }
-                    }
+                monthHeader = { month ->
+                    Text(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp, bottom = 8.dp, start = 16.dp),
+                        text       = month.yearMonth.format(monthFormatter),
+                        style      = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             )
             Legend(uiState.dayChips.values.flatten().distinctBy { it.friendName })
@@ -258,4 +272,3 @@ private fun DayCell(
         }
     }
 }
-
